@@ -1,0 +1,40 @@
+#! /bin/bash
+#PBS -l nodes=1:ppn=2:centos7,cput=12:00:00,walltime=12:00:00
+#PBS -N VTC
+#PBS -d /export/home/biostuds/2695664b/pathogenPolyomicsData
+#PBS -m abe
+#PBS -M 2695664b@student.gla.ac.uk
+#PBS -q bioinf-stud
+
+wild="/export/home/biostuds/2695664b/pathogenPolyomicsData/DNAseq/LmexWT"
+amp="/export/home/biostuds/2695664b/pathogenPolyomicsData/DNAseq/LmexAmpB"
+outdir="/export/home/biostuds/2695664b/pathogenPolyomicsData/results"
+ref="/export/home/biostuds/2695664b/pathogenPolyomicsData/Reference/TriTrypDB-25_LmexicanaMHOMGT2001U1103"
+index="/export/home/biostuds/2695664b/pathogenPolyomicsData/results/bowtie/index"
+sam="/export/home/biostuds/2695664b/pathogenPolyomicsData/results/samtools"
+trim="/export/home/biostuds/2695664b/pathogenPolyomicsData/results/trimgalore/Lmex"
+
+fastqc -o ${outdir}/fastqc -f fastq ${wild}_1.fastq.gz ${wild}_2.fastq.gz ${amp}_1.fastq.gz ${amp}_2.fastq.gz
+trim_galore -o ${outdir}/trimgalore --phred64 --paired --illumina ${wild}_1.fastq.gz ${wild}_2.fastq.gz
+trim_galore -o ${outdir}/trimgalore --phred64 --paired --illumina ${amp}_1.fastq.gz ${amp}_2.fastq.gz
+bowtie2-build -f ${ref} ${index}/Lmexicana
+bowtie2 -q --phred64 -x ${index}/Lmexicana -1 ${trim}WT_1_val_1.fq.gz -2 ${trim}WT_2_val_2.fq.gz -S ${sam}/LmexWT.sam
+bowtie2 -q --phred64 -x ${index}/Lmexicana -1 ${trim}AmpB_1_val_1.fq.gz -2 ${trim}AmpB_2_val_2.fq.gz -S ${sam}/LmexAmp.sam
+
+for sample in LmexWT LmexAmp
+do
+samtools view -b -o ${sam}/${sample}.bam -S ${sam}/${sample}.sam
+samtools sort -o ${sam}/${sample}.sort.bam ${sam}/${sample}.bam
+samtools index ${sam}/${sample}.sort.bam
+done
+bamaddrg -b ${sam}/LmexWT.sort.bam -s WT -b ${sam}/LmexAmp.sort.bam -s AmpB | freebayes -f ${ref} --stdin > Lmex.vcf
+
+bamCoverage -b ${sam}/LmexWT.sort.bam -of bedgraph -o LmexWT.bed
+bamCoverage -b ${sam}/LmexAmp.sort.bam -of bedgraph -o LmexAmpB.bed
+
+vcffilter -f "QUAL > 20 & TYPE = snp" Lmex.vcf > Lmexfiltered.vcf
+
+picard CreateSequenceDictionary R=${ref}.fa
+
+java -jar $VTC SO -i data=Lmexfiltered.vcf -c exact -s AmpB_unique=c[data[AmpB]:data[WT]] - R ${ref}.dict -o AmpB_unique.vcf
+

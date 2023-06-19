@@ -1,0 +1,50 @@
+#! /bin/bash
+#PBS -l nodes=1:ppn=4:centos6,cput=24:00:00,walltime=48:00:00
+#PBS -N assignment
+#PBS -d /export/home/biostuds/2695664b/assignment/results
+#PBS -m abe
+#PBS -M 2695664b@student.gla.ac.uk
+#PBS -q bioinf-stud
+
+hisat_indexes="/export/projects/polyomics/Genome/Mus_musculus/mm10/Hisat2Index/chr2"
+gtf="/export/projects/polyomics/Genome/Mus_musculus/mm10/annotations/chr2.gtf"
+gtflist="list.gtf.txt"
+rm -f ${gtflist}
+hisat_dir="/export/home/biostuds/2695664b/assignment/results/hisat_files"
+stringtie_dir="/export/home/biostuds/2695664b/assignment/results/stringtie_files"
+
+for sample in s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12
+do
+  	raw="../data/${sample}.c2.fq"
+        trim1="${sample}_tr1.tmp.fq"
+        trim2="${sample}_tr2.tmp.fq"
+        samfile="${sample}.sam"
+        bamfile="${sample}.bam"
+
+        scythe -o ${trim1} -a /export/projects/polyomics/biostuds/data/illumina_adapter.fa -q sanger ${raw}
+        sickle se -f ${trim1} -o ${trim2} -t sanger -q 10 -l 50
+
+        mkdir -p ${hisat_dir}
+        hisat2 -p 4 --phred33 -x ${hisat_indexes} -U ${trim2} -S ${hisat_dir}/${samfile}
+
+        rm ${trim1} ${trim2}
+
+        mkdir -p ${stringtie_dir}
+        samtools view -b -o ${stringtie_dir}/${bamfile} -S ${hisat_dir}/${samfile}
+        samtools sort ${stringtie_dir}/${bamfile} ${stringtie_dir}/${sample}.sort
+
+        rm ${stringtie_dir}/${bamfile} ${hisat_dir}/${samfile}
+
+        stringtie -o ${stringtie_dir}/${sample}.gtf -p 4 -B -e -G ${gtf} ${stringtie_dir}/${sample}.sort.bam
+done
+
+for sample in s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12
+
+do
+  	gtfline="${sample} ${stringtie_dir}/${sample}.gtf"
+        echo ${gtfline} >> ${gtflist}
+done
+
+
+python2.7 /export/projects/polyomics/App/prepDE.py -i ${gtflist}
+
